@@ -114,11 +114,15 @@ export class SLAMAlgoritm implements IAlgoritm {
             this.findPaths(x, y - 1, paths, new Path(path, new Coord(x, y)))
     }
 
-    isInteresting(x: number, y: number): boolean {
-        return Math.abs(this.map.probOccupied(x, y) - 0.5) < 0.25;
+    isInteresting(x: number, y: number, p = 0.25): boolean {
+        return Math.abs(this.map.probOccupied(x, y) - 0.5) < p;
     }
     isOccupied(x: number, y: number): boolean {
         return this.map.probOccupied(x, y) >= 0.5 + 0.15;
+    }
+
+    isFree(x: number, y: number): boolean {
+        return this.map.probOccupied(x, y) < 0.5 - 0.15;
     }
 
 
@@ -130,41 +134,30 @@ export class SLAMAlgoritm implements IAlgoritm {
 
         console.log("@[%d,%d]", cx, cy);
 
-        let n = this.findNextTargetBFS(cx, cy);
+        let n = null;
 
+        // iterate with increasing "interesting rate" until we find something to look for
+        for (let p = 0.25; p < 0.5 && n == null; p += 0.1) {
 
-
-        console.log(n);
-
-        this.currentTarget = n.me;
-
-        /*
-
-        let paths = new Array<Path>();
-
-        this.findPaths(cx, cy, paths);
-
-        // select the shortest path that has more than 1 coordinate (since the first one is always this position)
-        paths = paths.sort((a, b) => a.size() - b.size()).filter((value) => value.size() > 1);
-
-        // iterate until we find a path that makes us move (otherwise we could get stuck!)
-        for (const p of paths) {
-            p.pop(); // pop the first one
-            const goTo = p.pop(); // select the second one
-
-            if ((goTo.x - cx) != 0 || (goTo.y - cy) != 0) {
-                // store the last one, the "goal"
-                this.currentTarget = p.last();
-
-                return new Control(goTo.x - cx, goTo.y - cy)
-            }
-        }*/
-        if (this.currentTarget == null) {
-            // do random move?
+            n = this.findNextTargetBFS(cx, cy, (to, from, depth) => {
+                // only visit a free cell (a path) or a wall next to one
+                return this.isFree(to.x, to.y) || (this.isFree(from.x, from.y) && this.isInteresting(to.x, to.y, p));
+            }, (cell, depth) => {
+                return this.isInteresting(cell.x, cell.y, p)// && !this.isFree(cell.x, cell.y);
+            });
+            
         }
 
+        // if there was nothing to be found AT ALL, just dont do anything
+        if (n == null)
+            return null;
 
-        if (this.currentTarget != null && n.path.size() >= 1) {
+        // for drawing purposes
+        this.currentTarget = n.me;
+        console.log(n);
+
+        // make sure we have somewhere to go, and then go there
+        if (n.path.size() >= 1) {
             const goTo = n.path.pop();
             return new Control(goTo.x - cx, goTo.y - cy)
         }
@@ -181,8 +174,10 @@ export class SLAMAlgoritm implements IAlgoritm {
      * which is the cloest one
      * @param x x-coordinate of the starting cell
      * @param y y-coordinate of the starting cell
+     * @param shouldVisit a function to determine if the algorithm should visit a given cell from another cell
+     * @param predicate returns whether or not we have found a goal
      */
-    findNextTargetBFS(x: number, y: number): BFSNode | null {
+    findNextTargetBFS(x: number, y: number, shouldVisit: (to: Coord, from: Coord, depth: number) => boolean, predicate: (cell: Coord, depth: number) => boolean): BFSNode | null {
         let queue = new Queue<BFSNode>();
         let visited = new Array<BFSNode>();
         this.visited = visited;
@@ -205,19 +200,18 @@ export class SLAMAlgoritm implements IAlgoritm {
             // add this node to the visited list
             visited.push(node);
 
+            const depth = node.path.size();
+
             // check if we are done
-            if (this.isInteresting(node.me.x, node.me.y)) {
+            if (predicate(node.me, depth)) {
                 return node;
             }
 
             for (let n of neighbours) {
-                // skip occupied cells
-                if (this.isOccupied(node.me.x + n.x, node.me.y + n.y))
-                    continue;
-
                 const c = new Coord(node.me.x + n.x, node.me.y + n.y);
-                queue.push(new BFSNode(c, new Path(node.path, c)));
 
+                if (shouldVisit(c, node.me, depth))
+                    queue.push(new BFSNode(c, new Path(node.path, c)));
             }
         }
 
@@ -225,7 +219,7 @@ export class SLAMAlgoritm implements IAlgoritm {
 
     }
 
-    
+
 
     /*
         // calculates what move to do next to find out as much of the map as possible, and returns a corresponding Control object
@@ -483,19 +477,7 @@ export class SLAMAlgoritm implements IAlgoritm {
             ctx.fillRect((x + 0.2) * cellSize, (y + 0.2) * cellSize, cellSize * 0.6, cellSize * 0.6);
         }
 
-        /*
-        // draw flood fill squares
-        for (let i = 0; i < this.lastFill.length; i++) {
-            const x = this.map.getX(this.lastFill[i]);
-            const y = this.map.getY(this.lastFill[i]);
 
-            ctx.fillStyle = "#0000f0";
-            if (i == 1)
-                ctx.fillStyle = "#FF00F0";
-            ctx.fillRect((x + 0.3) * cellSize, (y + 0.3) * cellSize, cellSize * 0.4, cellSize * 0.4);
-
-        }
-        */
         if (this.visited != null) {
             for (let i = 0; i < this.visited.length; i++) {
                 const c = this.visited[i].me;
@@ -515,7 +497,6 @@ export class SLAMAlgoritm implements IAlgoritm {
     }
 
     drawMouseHover(mouseX: number, mouseY: number, ctx: CanvasRenderingContext2D, cellSize: number) {
-        //console.log("X: " + mouseX + ", Y: " + mouseY);
 
         // convert to cell coordinates
         const cx = Math.floor(mouseX / cellSize);

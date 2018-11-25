@@ -14,12 +14,6 @@ export class Queue<T> {
 
 }
 
-/*
-interface Array<T> {
-    find(predicate: (search: T) => boolean) : T;
-}
-*/
-
 export class Coord {
     constructor(public x: number = 0, public y: number = 0) {
     }

@@ -228,6 +228,8 @@ class App {
             this.robot.heading.dirY = u.dY;
             if (this.robot.tryMove(this.map))
                 this.update(u.dX, u.dY);
+            else // if we could not move, just send new measurements
+                this.update(0, 0);
         }
 
         // if (this.autoAI)
